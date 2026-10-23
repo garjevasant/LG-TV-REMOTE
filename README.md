@@ -1,17 +1,36 @@
-# lg_webos_remote
+# LG webOS Smart TV Remote
 
-A new Flutter project.
+A Flutter Android remote control app for LG webOS Smart TVs, including the LG 41UP7550 series.
 
-## Getting Started
+## Screenshots
 
-This project is a starting point for a Flutter application.
+### Main Remote
 
-A few resources to get you started if this is your first Flutter project:
+![Main Remote](screenshots/remote-main.jpg)
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### Touchpad
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+![Touchpad](screenshots/touchpad.jpg)
+
+### Apps Hub
+
+![Apps Hub](screenshots/apps.jpg)
+
+## Features
+
+- Automatic LG TV discovery on the local Wi-Fi network
+- LG webOS SSAP WebSocket pairing and persistent client key
+- D-pad, OK, volume, channel, power, mute and media controls
+- Touchpad pointer control with scroll wheel and haptic feedback
+- YouTube, Netflix, Prime Video, LG Store and HDMI launchers
+- Toast messages and remote keyboard input
+- Claymorphism UI with responsive four-tab navigation
+
+## Build
+
+```bash
+flutter pub get
+flutter build apk --release
+```
+
+The release APK is generated at `build/app/outputs/flutter-apk/app-release.apk`.
