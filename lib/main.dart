@@ -46,10 +46,13 @@ class _RemoteHomeState extends State<RemoteHome>
   int tab = 0;
   bool connected = false, connecting = false, muted = false, trackpad = true;
   bool discovering = false;
+  bool connectionNoticeShown = false;
   late final AnimationController _statusPulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 900))
     ..repeat(reverse: true);
   double wheelRotation = 0;
+  double wheelOffset = 0;
+  Offset? pointerPosition;
   String status = 'Disconnected';
   bool get ready => connected && socket != null;
   static const permissions = [
@@ -146,6 +149,7 @@ class _RemoteHomeState extends State<RemoteHome>
         setState(() {
           connected = true;
           connecting = false;
+          connectionNoticeShown = false;
           status = 'Connected to LG webOS TV';
         });
         command('ssap://com.webos.service.networkinput/getPointerInputSocket',
@@ -167,8 +171,11 @@ class _RemoteHomeState extends State<RemoteHome>
 
   void command(String uri,
       {Map<String, dynamic> payload = const {}, String? id}) {
-    if (!ready) return _notice('Connect to the TV first.');
     HapticFeedback.mediumImpact();
+    if (!ready) {
+      _connectionWarning();
+      return;
+    }
     socket!.add(jsonEncode({
       'id': id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       'type': 'request',
@@ -178,14 +185,18 @@ class _RemoteHomeState extends State<RemoteHome>
   }
 
   void key(String name) {
-    if (!ready || pointer == null) return;
     HapticFeedback.mediumImpact();
+    if (!ready || pointer == null) return;
     pointer!.add('type:button\nname:$name\n\n');
   }
 
   void mouse(String type, {double dx = 0, double dy = 0}) {
+    if (type == 'scroll') {
+      HapticFeedback.selectionClick();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
     if (!ready || pointer == null) return;
-    HapticFeedback.mediumImpact();
     pointer!.add(type == 'move'
         ? 'type:move\ndx:${dx.round()}\ndy:${dy.round()}\n\n'
         : 'type:$type\n\n');
@@ -217,6 +228,12 @@ class _RemoteHomeState extends State<RemoteHome>
 
   void _notice(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  void _connectionWarning() {
+    if (connectionNoticeShown) return;
+    connectionNoticeShown = true;
+    _notice('Connect to the TV first.');
+  }
 
   Future<void> discoverTv() async {
     if (discovering) return;
@@ -280,7 +297,12 @@ class _RemoteHomeState extends State<RemoteHome>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _confirmExit();
+      },
+      child: Scaffold(
           body: SafeArea(
               child: Column(children: [
         _header(),
@@ -289,7 +311,26 @@ class _RemoteHomeState extends State<RemoteHome>
                 index: tab,
                 children: [_mainRemote(), _touchPad(), _appsHub(), _tools()])),
         _bottomBar()
-      ])));
+      ]))));
+
+  Future<void> _confirmExit() async {
+    final exit = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Exit remote?'),
+              content: const Text('Do you want to close the LG TV Remote app?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('CANCEL')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('EXIT'))
+              ],
+            ));
+    if (exit == true && mounted) SystemNavigator.pop();
+  }
+
   Widget _header() => SizedBox(
       height: 22,
       child: Align(
@@ -309,7 +350,8 @@ class _RemoteHomeState extends State<RemoteHome>
                             fontWeight: FontWeight.bold))
                   ])))));
 
-  Widget _mainRemote() => _scroll(Column(children: [
+  Widget _mainRemote() => _remoteScroll(
+          Column(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
         _sectionTitle('Main Remote', 'मुख्य रिमोट'),
         Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           _action(Icons.power_settings_new_rounded, 'POWER', Colors.redAccent,
@@ -354,8 +396,19 @@ class _RemoteHomeState extends State<RemoteHome>
         const SizedBox(height: 16),
         _transport()
       ]));
+
+  Widget _remoteScroll(Widget child) => LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+          child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight > 10
+                      ? constraints.maxHeight - 10
+                      : 0),
+              child: child)));
   Widget _dpad() => ClayContainer(
       radius: 100,
+      color: const Color(0xff8a929d),
       padding: const EdgeInsets.all(12),
       child: SizedBox(
           width: 214,
@@ -400,10 +453,12 @@ class _RemoteHomeState extends State<RemoteHome>
             child: _toggleChoice('0–9 Number Pad', !trackpad,
                 () => setState(() => trackpad = false)))
       ]));
-  Widget _toggleChoice(
-          String text, bool selected, VoidCallback tap) =>
+  Widget _toggleChoice(String text, bool selected, VoidCallback tap) =>
       GestureDetector(
-          onTap: tap,
+          onTap: () {
+            HapticFeedback.mediumImpact();
+            tap();
+          },
           child: AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               padding: const EdgeInsets.symmetric(vertical: 13),
@@ -419,56 +474,94 @@ class _RemoteHomeState extends State<RemoteHome>
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
             child: GestureDetector(
-                onPanUpdate: (d) =>
-                    mouse('move', dx: d.delta.dx * 2.4, dy: d.delta.dy * 2.4),
+                onPanStart: (d) =>
+                    setState(() => pointerPosition = d.localPosition),
+                onPanUpdate: (d) {
+                  setState(() => pointerPosition = d.localPosition);
+                  mouse('move', dx: d.delta.dx * 2.4, dy: d.delta.dy * 2.4);
+                },
                 onTap: () => mouse('click'),
                 child: ClayContainer(
                     height: 300,
                     radius: 34,
-                    child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.mouse_rounded, size: 48, color: ink),
-                          SizedBox(height: 10),
-                          Text('Touch to move pointer',
-                              style: TextStyle(color: subtle)),
-                          Text('Tap to select', style: TextStyle(color: subtle))
-                        ])))),
+                    child: Stack(children: [
+                      const Center(
+                          child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                            Icon(Icons.mouse_rounded, size: 48, color: ink),
+                            SizedBox(height: 10),
+                            Text('Touch to move pointer',
+                                style: TextStyle(color: subtle)),
+                            Text('Tap to select',
+                                style: TextStyle(color: subtle))
+                          ])),
+                      if (pointerPosition != null)
+                        Positioned(
+                            left: pointerPosition!.dx - 7,
+                            top: pointerPosition!.dy - 7,
+                            child: Container(
+                                width: 14,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                    color: ink.withValues(alpha: .75),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: mint, width: 2))))
+                    ])))),
         const SizedBox(width: 12),
         ClayContainer(
             width: 68,
             height: 300,
             radius: 30,
-            child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  GestureDetector(
-                      onVerticalDragUpdate: (d) {
-                        setState(() => wheelRotation += d.delta.dy * .035);
-                        mouse('scroll', dy: d.delta.dy);
-                      },
-                      child: Container(
-                          width: 40,
-                          height: 188,
-                          decoration: BoxDecoration(
-                              color: const Color(0xff202b38),
-                              borderRadius: BorderRadius.circular(22),
-                              border: Border.all(color: Color(0x3317212d)),
-                              boxShadow: const [
-                                BoxShadow(
-                                    color: Color(0x66101820),
-                                    offset: Offset(2, 3),
-                                    blurRadius: 5),
-                                BoxShadow(
-                                    color: Color(0x332f4355),
-                                    offset: Offset(-2, -2),
-                                    blurRadius: 4)
-                              ]),
-                          child: Transform.rotate(
-                              angle: wheelRotation,
-                              child: const Icon(Icons.mouse_rounded,
-                                  color: Colors.black, size: 32))))
-                ]))
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+            child: GestureDetector(
+                onVerticalDragStart: (_) => HapticFeedback.mediumImpact(),
+                onVerticalDragUpdate: (d) {
+                  setState(
+                      () => wheelOffset = (wheelOffset + d.delta.dy * .8) % 22);
+                  mouse('scroll', dy: d.delta.dy);
+                },
+                child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Container(
+                        color: const Color(0xff080f18),
+                        child: Stack(clipBehavior: Clip.hardEdge, children: [
+                          Transform.translate(
+                              offset: Offset(0, wheelOffset - 11),
+                              child: Column(children: [
+                                for (int i = 0; i < 32; i++)
+                                  Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 3),
+                                      child: Container(
+                                          height: 3,
+                                          margin: const EdgeInsets.symmetric(
+                                              horizontal: 4),
+                                          decoration: BoxDecoration(
+                                              color: i.isEven
+                                                  ? mint
+                                                  : const Color(0xff718197),
+                                              borderRadius:
+                                                  BorderRadius.circular(2))))
+                              ])),
+                          Center(
+                              child: Container(
+                                  width: 34,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                      color: const Color(0xff304158),
+                                      borderRadius: BorderRadius.circular(17),
+                                      border:
+                                          Border.all(color: mint, width: 1.5),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                            color: Color(0xaa000000),
+                                            offset: Offset(2, 3),
+                                            blurRadius: 6)
+                                      ]),
+                                  child: const Icon(Icons.swap_vert_rounded,
+                                      color: mint, size: 25)))
+                        ])))))
       ]);
   Widget _numberPad() => GridView.count(
           shrinkWrap: true,
@@ -606,25 +699,29 @@ class _RemoteHomeState extends State<RemoteHome>
               onTap: () => command('ssap://system/getSystemInfo'))
         ]),
         const SizedBox(height: 10),
-        Center(
-            child: Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 4),
-                child: Column(children: [
-                  Text('DESIGNED & DEVELOPED BY',
-                      style: TextStyle(
-                          color: mint.withValues(alpha: .7),
-                          fontSize: 10,
-                          letterSpacing: 2.2,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  const Text('GARJE VASANT',
-                      style: TextStyle(
-                          color: ink,
-                          fontSize: 15,
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w900,
-                          fontFamily: 'serif'))
-                ])))
+        ClayContainer(
+            radius: 18,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Icon(Icons.auto_awesome_rounded, color: mint, size: 18),
+              const SizedBox(width: 9),
+              Column(children: [
+                Text('DESIGNED & DEVELOPED BY',
+                    style: TextStyle(
+                        color: mint.withValues(alpha: .75),
+                        fontSize: 9,
+                        letterSpacing: 1.6,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                const Text('GARJE VASANT',
+                    style: TextStyle(
+                        color: lightText,
+                        fontSize: 14,
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w900,
+                        fontFamily: 'serif'))
+              ])
+            ]))
       ]));
 
   Widget _connectionTools() => Padding(
@@ -788,17 +885,19 @@ class ClayContainer extends StatelessWidget {
       this.width,
       this.height,
       this.padding = EdgeInsets.zero,
-      this.radius = 30});
+      this.radius = 30,
+      this.color = panel});
   final Widget child;
   final double? width, height, radius;
   final EdgeInsets padding;
+  final Color color;
   @override
   Widget build(BuildContext context) => Container(
       width: width,
       height: height,
       padding: padding,
       decoration: BoxDecoration(
-          color: panel,
+          color: color,
           borderRadius: BorderRadius.circular(radius!),
           boxShadow: const [
             BoxShadow(
