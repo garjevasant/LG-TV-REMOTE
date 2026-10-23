@@ -4,17 +4,9 @@ A Flutter Android remote control app for LG webOS Smart TVs, including the LG 41
 
 ## Screenshots
 
-### Main Remote
-
-<img src="screenshots/remote-main.jpg" alt="Main Remote" width="220">
-
-### Touchpad
-
-<img src="screenshots/touchpad.jpg" alt="Touchpad" width="220">
-
-### Apps Hub
-
-<img src="screenshots/apps.jpg" alt="Apps Hub" width="220">
+| Main Remote | Touchpad | Apps Hub |
+|---|---|---|
+| <img src="screenshots/remote-main.jpg" alt="Main Remote" width="180"> | <img src="screenshots/touchpad.jpg" alt="Touchpad" width="180"> | <img src="screenshots/apps.jpg" alt="Apps Hub" width="180"> |
 
 ## Features
 
