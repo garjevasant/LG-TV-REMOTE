@@ -2,6 +2,13 @@
 
 A Flutter Android remote control app for LG webOS Smart TVs, including the LG 41UP7550 series.
 
+## Tested TV
+
+Successfully tested with:
+
+- **LG 43UP7550 Smart TV**
+- **LG webOS**
+
 ## Screenshots
 
 | Main Remote | Touchpad | Apps Hub |
